@@ -5,23 +5,38 @@
  * WHAT IT DOES
  *   · Phones send scouting reports here; each pest on a report becomes one row
  *     on the "Reports" tab (one visit = one Report ID across its rows).
- *   · Photos are saved to a "Scouting photos" folder next to this sheet, and
- *     the row gets a link to each one.
- *   · The farms, locations, crops, pests and dropdown choices live on the
- *     "Setup" tab. The app's Setup page writes them here — or edit that tab
- *     by hand; phones pick up the change the next time they open the app.
+ *   · Photos are saved to a "Scouting photos (sheet name)" folder in your
+ *     My Drive, and the row gets a link to each one.
+ *   · The farms, ranges, locations, crops, pests and dropdown choices live on
+ *     the "Setup" tab. The app's Setup page writes them here — or edit that
+ *     tab by hand; phones pick up the change the next time they open the app.
+ *
+ * WHAT IT CAN REACH — deliberately as little as Google allows. The
+ * permissions are set in appsscript.json (the app's Setup page gives you that
+ * file too):
+ *   · "spreadsheets.currentonly" — THIS spreadsheet only, no other sheet.
+ *   · "drive.file" — only the photos folder and photos this script creates
+ *     itself. It cannot see, open or change any other file in your Drive.
+ *   It never deletes anything. It adds rows to "Reports" and rewrites the
+ *   "Setup" tab when the lists are saved (that needs the setup password).
  *
  * HOW TO INSTALL (once per sheet — the app's Setup page walks through it)
  *   1. In the sheet: Extensions → Apps Script. Delete what is there, paste
  *      this whole file, click Save.
- *   2. Deploy → New deployment → type "Web app".
+ *   2. Project Settings (gear) → tick "Show appsscript.json manifest file in
+ *      editor". Back in the Editor, open appsscript.json, replace everything
+ *      in it with the app's appsscript.json, click Save.
+ *   3. Deploy → New deployment → type "Web app".
  *        Execute as:      Me
  *        Who has access:  Anyone
- *      Click Deploy, allow the permissions Google asks for, and copy the
- *      "Web app URL" (it ends in /exec). Paste it into the app's Setup page.
+ *      Click Deploy and allow the permissions. Google warns "This app hasn't
+ *      been verified" — normal for a script in your own sheet (the developer
+ *      it names is you): Advanced → Go to (project) (unsafe) → Allow.
+ *      Copy the "Web app URL" (it ends in /exec) into the app's Setup page.
  *   "Anyone" is what lets scouts send reports without a Google sign-in.
  *   Anyone holding the link can add reports and read the Setup lists; only
- *   someone with the setup password can change the lists.
+ *   someone with the setup password can change the lists. Anyone you give
+ *   EDIT access to this sheet can also edit this script — keep that list short.
  *
  * SETUP PASSWORD: the first time the app saves the lists, the password typed
  * there becomes the setup password. To reset it: Project Settings (gear) →
@@ -36,12 +51,14 @@ var REPORTS = 'Reports';
 var SETUP = 'Setup';
 var PHOTOS_FOLDER = 'Scouting photos';
 
-var REPORT_HEADERS = ['Received', 'Reported at', 'Report ID', 'Scout', 'Farm', 'Location',
+var REPORT_HEADERS = ['Received', 'Reported at', 'Report ID', 'Scout', 'Farm', 'Range', 'Location',
   'Crop / plant', 'Pest', 'Severity', 'Distribution', 'Notes', 'Latitude', 'Longitude', 'Photos'];
 
-// Setup tab: one column (or pair of columns) per list, a blank column between.
-var SETUP_COLS = { farm: 1, location: 2, crop: 4, pest: 6, severity: 8, distribution: 10, setting: 12, value: 13 };
-var SETUP_HEADERS = { 1: 'Farm', 2: 'Location', 4: 'Crop / plant', 6: 'Pest', 8: 'Severity', 10: 'Distribution', 12: 'Setting', 13: 'Value' };
+// Setup tab: Farm | Range | Location together, then one column per list, a
+// blank column between. Range may be left blank for a farm with no ranges.
+var SETUP_COLS = { farm: 1, range: 2, location: 3, crop: 5, pest: 7, severity: 9, distribution: 11, setting: 13, value: 14 };
+var SETUP_WIDTH = 14;
+var SETUP_HEADERS = { 1: 'Farm', 2: 'Range', 3: 'Location', 5: 'Crop / plant', 7: 'Pest', 9: 'Severity', 11: 'Distribution', 13: 'Setting', 14: 'Value' };
 var SETTINGS = [
   ['title', 'Title'], ['showCrop', 'Show crop'], ['showPhotos', 'Show photos'],
   ['showGps', 'Show GPS'], ['showNotes', 'Show notes'],
@@ -103,29 +120,44 @@ function reportRows(report, received, photoLinks) {
   var at = report.at ? new Date(report.at) : received;
   var photos = (photoLinks || []).join('\n');
   return lines.map(function (l) {
-    return [received, at, safe_(report.id), safe_(report.scout), safe_(report.farm), safe_(report.location),
+    return [received, at, safe_(report.id), safe_(report.scout), safe_(report.farm), safe_(report.range), safe_(report.location),
       safe_(report.crop), safe_(l.pest), safe_(l.severity), safe_(l.distribution), safe_(report.notes),
       num_(report.lat), num_(report.lng), photos];
   });
 }
 
+// Photos go through the Drive API service ("Drive", enabled by
+// appsscript.json), NOT DriveApp: DriveApp demands the whole-Drive permission,
+// while the Drive API works with "drive.file" — only files this script made.
 function savePhotos_(ss, report) {
   var photos = report.photos || [];
   if (!photos.length) return [];
-  var folder = photoFolder_(ss);
+  var folderId = photoFolderId_(ss);
   var stamp = String(report.at || '').slice(0, 10);
   return photos.map(function (ph, i) {
-    var name = [stamp, report.farm, report.location, report.id + '-' + (i + 1)].filter(function (x) { return x; }).join(' ') + '.jpg';
+    var name = [stamp, report.farm, report.range, report.location, report.id + '-' + (i + 1)].filter(function (x) { return x; }).join(' ') + '.jpg';
     var blob = Utilities.newBlob(Utilities.base64Decode(String(ph.data || '')), ph.type || 'image/jpeg', name);
-    return folder.createFile(blob).getUrl();
+    var file = Drive.Files.create({ name: name, parents: [folderId] }, blob, { fields: 'id,webViewLink' });
+    return file.webViewLink || ('https://drive.google.com/file/d/' + file.id + '/view');
   });
 }
 
-function photoFolder_(ss) {
-  var parents = DriveApp.getFileById(ss.getId()).getParents();
-  var parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
-  var found = parent.getFoldersByName(PHOTOS_FOLDER);
-  return found.hasNext() ? found.next() : parent.createFolder(PHOTOS_FOLDER);
+// The folder is made once, in My Drive, and remembered by id. With
+// "drive.file" the script can't look inside other folders (not even the one
+// holding this sheet), so it can't search by name — it keeps the id instead.
+// A folder that was deleted or binned is simply made again.
+function photoFolderId_(ss) {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('PHOTOS_FOLDER_ID');
+  if (id) {
+    try {
+      var f = Drive.Files.get(id, { fields: 'id,trashed' });
+      if (f && !f.trashed) return id;
+    } catch (gone) { /* deleted, or no longer ours — make a new one */ }
+  }
+  var folder = Drive.Files.create({ name: PHOTOS_FOLDER + ' (' + ss.getName() + ')', mimeType: 'application/vnd.google-apps.folder' });
+  props.setProperty('PHOTOS_FOLDER_ID', folder.id);
+  return folder.id;
 }
 
 /* ── setup lists ──────────────────────────────────────────────────────── */
@@ -133,7 +165,7 @@ function photoFolder_(ss) {
 function readSetup_(ss) {
   var sheet = ss.getSheetByName(SETUP);
   if (!sheet || sheet.getLastRow() < 2) return null;
-  return setupFromValues(sheet.getRange(1, 1, sheet.getLastRow(), 13).getValues());
+  return setupFromValues(sheet.getRange(1, 1, sheet.getLastRow(), SETUP_WIDTH).getValues());
 }
 
 function saveSetup_(ss, key, config) {
@@ -143,7 +175,7 @@ function saveSetup_(ss, key, config) {
   var values = setupToValues(config || {});
   var sheet = ensureSheet_(ss, SETUP, null);
   sheet.clear();
-  sheet.getRange(1, 1, values.length, 13).setValues(values);
+  sheet.getRange(1, 1, values.length, SETUP_WIDTH).setValues(values);
   sheet.setFrozenRows(1);
   return { ok: true, config: setupFromValues(values) };
 }
@@ -164,10 +196,19 @@ function setupFromValues(values) {
   var col = function (row, c) { return String(row[c - 1] == null ? '' : row[c - 1]).trim(); };
   for (var r = 1; r < values.length; r++) {
     var row = values[r];
-    var farm = col(row, SETUP_COLS.farm), loc = col(row, SETUP_COLS.location);
+    var farm = col(row, SETUP_COLS.farm), range = col(row, SETUP_COLS.range), loc = col(row, SETUP_COLS.location);
     if (farm) {
-      if (!(farm in farmIx)) { farmIx[farm] = cfg.farms.length; cfg.farms.push({ name: farm, locations: [] }); }
-      if (loc && cfg.farms[farmIx[farm]].locations.indexOf(loc) < 0) cfg.farms[farmIx[farm]].locations.push(loc);
+      if (!(farm in farmIx)) { farmIx[farm] = cfg.farms.length; cfg.farms.push({ name: farm, locations: [], ranges: [] }); }
+      var f = cfg.farms[farmIx[farm]];
+      // A farm's locations either hang straight off it (no Range) or off a Range.
+      var into = f.locations;
+      if (range) {
+        var rg = null;
+        for (var k = 0; k < f.ranges.length; k++) if (f.ranges[k].name === range) rg = f.ranges[k];
+        if (!rg) { rg = { name: range, locations: [] }; f.ranges.push(rg); }
+        into = rg.locations;
+      }
+      pushUnique_(into, loc);
     }
     pushUnique_(cfg.crops, col(row, SETUP_COLS.crop));
     pushUnique_(cfg.pests, col(row, SETUP_COLS.pest));
@@ -185,12 +226,17 @@ function setupFromValues(values) {
   return cfg;
 }
 
-// Pure: the app's config → the Setup tab's grid (13 columns, header row first).
+// Pure: the app's config → the Setup tab's grid (14 columns, header row first).
 function setupToValues(cfg) {
   var farmRows = [];
   (cfg.farms || []).forEach(function (f) {
-    var locs = (f.locations && f.locations.length) ? f.locations : [''];
-    locs.forEach(function (l) { farmRows.push([f.name, l]); });
+    var ranges = f.ranges || [];
+    (f.locations || []).forEach(function (l) { farmRows.push([f.name, '', l]); });
+    ranges.forEach(function (rg) {
+      var locs = (rg.locations && rg.locations.length) ? rg.locations : [''];
+      locs.forEach(function (l) { farmRows.push([f.name, rg.name, l]); });
+    });
+    if (!(f.locations || []).length && !ranges.length) farmRows.push([f.name, '', '']);
   });
   var settings = SETTINGS.map(function (s) {
     var v = cfg[s[0]];
@@ -201,17 +247,24 @@ function setupToValues(cfg) {
   lists[SETUP_COLS.pest] = cfg.pests || [];
   lists[SETUP_COLS.severity] = (cfg.severity && cfg.severity.length) ? cfg.severity : DEFAULT_SEVERITY;
   lists[SETUP_COLS.distribution] = (cfg.distribution && cfg.distribution.length) ? cfg.distribution : DEFAULT_DISTRIBUTION;
-  var n = Math.max(farmRows.length, settings.length, lists[4].length, lists[6].length, lists[8].length, lists[10].length);
+  var listCols = [SETUP_COLS.crop, SETUP_COLS.pest, SETUP_COLS.severity, SETUP_COLS.distribution];
+  var n = farmRows.length;
+  n = Math.max(n, settings.length);
+  listCols.forEach(function (cc) { n = Math.max(n, lists[cc].length); });
   var out = [];
   var head = [];
-  for (var c = 1; c <= 13; c++) head.push(SETUP_HEADERS[c] || '');
+  for (var c = 1; c <= SETUP_WIDTH; c++) head.push(SETUP_HEADERS[c] || '');
   out.push(head);
   for (var r = 0; r < n; r++) {
     var row = [];
-    for (var k = 0; k < 13; k++) row.push('');
-    if (farmRows[r]) { row[0] = safe_(farmRows[r][0]); row[1] = safe_(farmRows[r][1]); }
-    [4, 6, 8, 10].forEach(function (cc) { if (lists[cc][r] != null) row[cc - 1] = safe_(lists[cc][r]); });
-    if (settings[r]) { row[11] = settings[r][0]; row[12] = safe_(settings[r][1]); }
+    for (var k = 0; k < SETUP_WIDTH; k++) row.push('');
+    if (farmRows[r]) {
+      row[SETUP_COLS.farm - 1] = safe_(farmRows[r][0]);
+      row[SETUP_COLS.range - 1] = safe_(farmRows[r][1]);
+      row[SETUP_COLS.location - 1] = safe_(farmRows[r][2]);
+    }
+    listCols.forEach(function (cc) { if (lists[cc][r] != null) row[cc - 1] = safe_(lists[cc][r]); });
+    if (settings[r]) { row[SETUP_COLS.setting - 1] = settings[r][0]; row[SETUP_COLS.value - 1] = safe_(settings[r][1]); }
     out.push(row);
   }
   return out;

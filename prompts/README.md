@@ -16,9 +16,10 @@ built, and what went wrong on the way.
 | [01-sheet-script.md](01-sheet-script.md) | The Google Apps Script "backend", and how it was tested without Google |
 | [02-phone-form-and-setup.md](02-phone-form-and-setup.md) | The report form, the Setup page, offline sending, and the end-to-end probe |
 | [03-guide-deploy.md](03-guide-deploy.md) | The guide page, icons, this folder, and the deploy script |
+| [04-first-real-test.md](04-first-real-test.md) | The first real Google test: the "unverified" warning, narrowing permissions, Farm → Range → Location, type-to-find, the ⚙ menu |
 | [HOW-TO-CUSTOMIZE.md](HOW-TO-CUSTOMIZE.md) | For the workshop: make it yours on a branch |
 
-The script your sheet runs is in [`apps-script/Code.gs`](../apps-script/Code.gs).
+The script your sheet runs is in [`apps-script/Code.gs`](../apps-script/Code.gs), and the settings file that limits what it can reach is [`apps-script/appsscript.json`](../apps-script/appsscript.json).
 Read it before you paste it; it is short and commented.
 
 ## The habits that mattered
