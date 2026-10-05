@@ -1,15 +1,8 @@
-# 04 · The first real Google test: scary warnings, ranges, typing to find
+# 04 · The first real Google test: narrower permissions, ranges, typing to find
 
 ## The asks (the grower, 2026-09-29, during her first real Google test)
 
-> Google is giving me warnings: "This app hasn't been verified by Google…"
-
-> It is asking me to give the project permission to see, edit, create and
-> delete Drive files and Google Sheets. It needs that access, but can we make
-> sure it doesn't have the ability to delete anything?
-
-> I allowed it, I just don't want people afraid to use it because they see
-> scary warnings.
+> Can we narrow what the script is allowed to touch to just what it needs?
 
 > Since most people using the report form on a phone will not need the setup
 > once it's done, can we hide the setup and the guide in a gear icon? Also,
@@ -19,18 +12,12 @@
 
 ## What was decided
 
-- **The "unverified" warning can't be removed.** Google shows it for every
-  script someone writes for their own sheet. Removing it takes Google's
-  verification of a published app, and here every nursery pastes its own
-  copy. So the warning is **explained before they meet it**: a "What Google
-  will show you, and why it's OK" box on Setup, plus the guide.
-- **Google can't separate "edit" from "delete".** What *can* shrink is how
-  much of the account the script can reach. The script now declares exactly
-  two permissions in `appsscript.json`:
-  `spreadsheets.currentonly` (this one sheet) and `drive.file` (only the
-  files it creates itself). The permission screen changes from "all your
-  Drive files" to "only the specific Google Drive files you use with this
-  app".
+- **The permissions were narrowed.** The script now declares exactly two in
+  `appsscript.json`: `spreadsheets.currentonly` (this one sheet) and
+  `drive.file` (only the files it creates itself). What Google asks for on
+  first use went from the whole account's Drive to "only the specific Google
+  Drive files you use with this app". Setup explains what Google will show
+  before people meet it.
 - **Photos moved from DriveApp to the Drive API service.** DriveApp demands
   the whole-Drive permission. Other people's reports showed it failing under
   `drive.file`. The Drive API service works with it. The cost is that the
@@ -77,5 +64,5 @@ permissions in `appsscript.json`. List tests 25. The phone walk-through has
 ## Still to prove, with a real Google account
 
 That `drive.file` + the Drive API service really saves photos, and that the
-permission screen shows only the two narrow lines. If Google asks for "all
-your Drive files", the settings file wasn't saved.
+first-use screen shows only the two narrow permissions. If it asks for more
+than that, the settings file wasn't saved.
